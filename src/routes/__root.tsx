@@ -11,6 +11,10 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { Toaster } from "sonner";
+import { Navbar } from "@/components/site/Navbar";
+import { Footer } from "@/components/site/Footer";
+import logo from "@/assets/logobanana.jpg.asset.json";
 
 function NotFoundComponent() {
   return (
@@ -77,20 +81,25 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "JAMES BANANA | AI Meme Video Generator On Monad" },
+      { name: "description", content: "Create hilarious AI-generated meme videos with James Banana and stake on Monad." },
+      { name: "author", content: "James Banana" },
+      { name: "theme-color", content: "#FFD54A" },
+      { property: "og:title", content: "JAMES BANANA | AI Meme Video Generator On Monad" },
+      { property: "og:description", content: "Create hilarious AI-generated meme videos with James Banana and stake on Monad." },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
+      { property: "og:image", content: logo.url },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:site", content: "@jamescatbanana" },
+      { name: "twitter:image", content: logo.url },
     ],
     links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
+      { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: logo.url },
+      { rel: "apple-touch-icon", href: logo.url },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;700;800&display=swap" },
     ],
   }),
   shellComponent: RootShell,
@@ -118,8 +127,12 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <Navbar />
+      <main className="min-h-screen">
+        <Outlet />
+      </main>
+      <Footer />
+      <Toaster richColors position="top-center" toastOptions={{ style: { borderRadius: 18, fontWeight: 700 } }} />
     </QueryClientProvider>
   );
 }
