@@ -142,4 +142,3 @@
 .animate-spin-slow { animation: spin-slow 18s linear infinite; }
 .animate-wobble { animation: wobble 2.4s ease-in-out infinite; }
 .animate-sparkle { animation: sparkle 2s ease-in-out infinite; }
-}
