@@ -15,6 +15,7 @@ import { Toaster } from "sonner";
 import { Navbar } from "@/components/site/Navbar";
 import { Footer } from "@/components/site/Footer";
 import logo from "@/assets/logobanana.jpg.asset.json";
+import { Web3Provider } from "@/components/web3/Web3Provider";
 
 function NotFoundComponent() {
   return (
@@ -127,12 +128,14 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Navbar />
-      <main className="min-h-screen">
-        <Outlet />
-      </main>
-      <Footer />
-      <Toaster richColors position="top-center" toastOptions={{ style: { borderRadius: 18, fontWeight: 700 } }} />
+      <Web3Provider>
+        <Navbar />
+        <main className="min-h-screen">
+          <Outlet />
+        </main>
+        <Footer />
+        <Toaster richColors position="top-center" toastOptions={{ style: { borderRadius: 18, fontWeight: 700 } }} />
+      </Web3Provider>
     </QueryClientProvider>
   );
 }

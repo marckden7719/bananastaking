@@ -1,10 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  useAccount,
+  useBalance,
+  useChainId,
+  useReadContracts,
+  useSwitchChain,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from "wagmi";
+import { formatEther, parseEther } from "viem";
 import logo from "@/assets/logobanana.jpg.asset.json";
 import { FloatingBananas } from "@/components/site/FloatingBananas";
 import { Counter } from "@/components/site/Counter";
+import { monadMainnet } from "@/lib/web3/chain";
+import {
+  VAULT_ADDRESS,
+  JAMES_TOKEN_ADDRESS,
+  vaultAbi,
+  erc20Abi,
+  hasContracts,
+} from "@/lib/web3/contracts";
 
 export const Route = createFileRoute("/staking")({
   head: () => ({
@@ -20,65 +38,163 @@ export const Route = createFileRoute("/staking")({
   component: Staking,
 });
 
-type Pool = { id: string; name: string; days: number; apy: number; emoji: string; color: string };
+type Pool = { id: number; name: string; days: number; apy: number; emoji: string; color: string };
 const POOLS: Pool[] = [
-  { id: "lite", name: "Banana Lite", days: 7, apy: 30, emoji: "🍌", color: "bg-[color:var(--banana-cream)]" },
-  { id: "plus", name: "Banana Plus", days: 15, apy: 75, emoji: "🍌🍌", color: "bg-banana-gradient" },
-  { id: "diamond", name: "Banana Diamond", days: 30, apy: 180, emoji: "👑🍌", color: "bg-[color:var(--leaf)] text-white" },
+  { id: 0, name: "Banana Lite", days: 7, apy: 30, emoji: "🍌", color: "bg-[color:var(--banana-cream)]" },
+  { id: 1, name: "Banana Plus", days: 15, apy: 75, emoji: "🍌🍌", color: "bg-banana-gradient" },
+  { id: 2, name: "Banana Diamond", days: 30, apy: 180, emoji: "👑🍌", color: "bg-[color:var(--leaf)] text-white" },
 ];
 
 type Stake = { id: number; amount: number; pool: Pool; start: number };
 
 function Staking() {
-  const [connected, setConnected] = useState(false);
-  const [wrongNetwork, setWrongNetwork] = useState(false);
-  const [addr] = useState("0x42n4n4...c47");
-  const [mon] = useState(128.42);
-  const [james] = useState(1_250_000);
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
+  const { switchChain, isPending: switching } = useSwitchChain();
+  const wrongNetwork = isConnected && chainId !== monadMainnet.id;
+
+  const { data: nativeBal } = useBalance({
+    address,
+    chainId: monadMainnet.id,
+    query: { enabled: !!address, refetchInterval: 12_000 },
+  });
+
   const [pool, setPool] = useState<Pool>(POOLS[1]);
   const [amount, setAmount] = useState("10");
   const [stakes, setStakes] = useState<Stake[]>([]);
   const [burnOpen, setBurnOpen] = useState<Stake | null>(null);
 
-  const tier = useMemo(() => {
-    if (james >= 1_000_000) return { name: "Diamond", emoji: "👑🍌", bonus: 50 };
-    if (james >= 250_000) return { name: "Gold", emoji: "🍌🍌🍌", bonus: 25 };
-    if (james >= 50_000) return { name: "Silver", emoji: "🍌🍌", bonus: 10 };
-    return { name: "Bronze", emoji: "🍌", bonus: 0 };
-  }, [james]);
-
+  const live = hasContracts();
   const amt = parseFloat(amount) || 0;
-  const base = (amt * pool.apy * pool.days) / 365 / 100;
-  const bonus = base * (tier.bonus / 100);
-  const finalReward = base + bonus;
+  const amtWei = useMemo(() => {
+    try { return parseEther((amt || 0).toString()); } catch { return 0n; }
+  }, [amt]);
 
-  function connect() {
-    setConnected(true);
-    toast.success("🍌 Wallet Connected");
+  // ===== Live contract reads (only fire when contract is deployed) =====
+  const reads = useReadContracts({
+    allowFailure: true,
+    contracts: live
+      ? [
+          { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "tierOf", args: [address ?? "0x0000000000000000000000000000000000000000"], chainId: monadMainnet.id },
+          { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "bonusOf", args: [address ?? "0x0000000000000000000000000000000000000000"], chainId: monadMainnet.id },
+          { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "coverage", chainId: monadMainnet.id },
+          { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "totalStaked", chainId: monadMainnet.id },
+          { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "rewardsReserved", chainId: monadMainnet.id },
+          { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "distributed", chainId: monadMainnet.id },
+          { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "activeStakes", chainId: monadMainnet.id },
+          { address: VAULT_ADDRESS, abi: vaultAbi, functionName: "previewReward", args: [address ?? "0x0000000000000000000000000000000000000000", amtWei, pool.id], chainId: monadMainnet.id },
+          { address: JAMES_TOKEN_ADDRESS, abi: erc20Abi, functionName: "balanceOf", args: [address ?? "0x0000000000000000000000000000000000000000"], chainId: monadMainnet.id },
+        ]
+      : [],
+    query: { enabled: live, refetchInterval: 15_000 },
+  });
+
+  const r = reads.data;
+  const tierIdx = (r?.[0]?.result as number | undefined) ?? 0;
+  const bonusBps = (r?.[1]?.result as number | undefined) ?? 0;
+  const coverageBps = (r?.[2]?.result as number | undefined) ?? 8400;
+  const totalStaked = (r?.[3]?.result as bigint | undefined) ?? 0n;
+  const rewardsReserved = (r?.[4]?.result as bigint | undefined) ?? 0n;
+  const distributed = (r?.[5]?.result as bigint | undefined) ?? 0n;
+  const activeStakes = (r?.[6]?.result as bigint | undefined) ?? 0n;
+  const preview = r?.[7]?.result as readonly [bigint, bigint, bigint] | undefined;
+  const jamesBal = (r?.[8]?.result as bigint | undefined) ?? 0n;
+
+  // Fallback values when contracts are not yet deployed — keeps UI alive.
+  const mockJames = 1_250_000;
+  const james = live ? Number(jamesBal / 10n ** 18n) : mockJames;
+
+  const tier = useMemo(() => {
+    const tiers = [
+      { name: "Bronze", emoji: "🍌", bonus: 0 },
+      { name: "Silver", emoji: "🍌🍌", bonus: 10 },
+      { name: "Gold", emoji: "🍌🍌🍌", bonus: 25 },
+      { name: "Diamond", emoji: "👑🍌", bonus: 50 },
+    ];
+    if (live) return { ...tiers[Math.min(tierIdx, 3)], bonus: bonusBps / 100 };
+    if (james >= 1_000_000) return tiers[3];
+    if (james >= 250_000) return tiers[2];
+    if (james >= 50_000) return tiers[1];
+    return tiers[0];
+  }, [live, tierIdx, bonusBps, james]);
+
+  const coverage = live ? coverageBps / 100 : 84;
+
+  const base = live && preview ? Number(formatEther(preview[0])) : (amt * pool.apy * pool.days) / 365 / 100;
+  const bonus = live && preview ? Number(formatEther(preview[1])) : base * (tier.bonus / 100);
+  const finalReward = live && preview ? Number(formatEther(preview[2])) : base + bonus;
+
+  // ===== Writes =====
+  const { writeContract, data: txHash, isPending: writing, reset: resetWrite } = useWriteContract();
+  const { isLoading: confirming, isSuccess: confirmed } = useWaitForTransactionReceipt({ hash: txHash });
+
+  // Refetch all reads after every confirmed tx → live UI sync.
+  useEffect(() => {
+    if (confirmed) {
+      toast.success("🎉 Transaction confirmed");
+      reads.refetch();
+      resetWrite();
+    }
+  }, [confirmed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function doSwitch() {
+    switchChain({ chainId: monadMainnet.id });
   }
-  function fakeSwitch() {
-    setWrongNetwork(false);
-    toast.success("✅ Switched to Monad Mainnet");
-  }
+
   function stake() {
-    if (!connected) return toast.error("Connect wallet first 🍌");
-    if (wrongNetwork) return toast.error("⚠ Wrong Network");
+    if (!isConnected) return toast.error("Connect wallet first 🍌");
+    if (wrongNetwork) return toast.error("⚠ Switch to Monad Mainnet");
     if (amt <= 0) return toast.error("Enter an amount 🍌");
-    setStakes((s) => [...s, { id: Date.now(), amount: amt, pool, start: Date.now() }]);
-    toast.success("🚀 Stake Successful");
+    if (!live) {
+      setStakes((s) => [...s, { id: Date.now(), amount: amt, pool, start: Date.now() }]);
+      return toast.success("🚀 Stake simulated (contract not deployed yet)");
+    }
+    writeContract({
+      address: VAULT_ADDRESS,
+      abi: vaultAbi,
+      functionName: "stake",
+      args: [pool.id],
+      value: amtWei,
+      chainId: monadMainnet.id,
+    });
+    toast("🍌 Confirm the transaction in your wallet…");
   }
+
   function claim(s: Stake) {
     const unlock = s.start + s.pool.days * 86400_000;
     if (Date.now() < unlock) return setBurnOpen(s);
-    setStakes((arr) => arr.filter((x) => x.id !== s.id));
-    toast.success("🎉 Rewards Claimed");
+    if (!live) {
+      setStakes((arr) => arr.filter((x) => x.id !== s.id));
+      return toast.success("🎉 Rewards claimed (simulated)");
+    }
+    writeContract({
+      address: VAULT_ADDRESS,
+      abi: vaultAbi,
+      functionName: "claim",
+      args: [BigInt(s.id)],
+      chainId: monadMainnet.id,
+    });
   }
+
   function confirmBurn() {
     if (!burnOpen) return;
-    setStakes((arr) => arr.filter((x) => x.id !== burnOpen.id));
+    if (!live) {
+      setStakes((arr) => arr.filter((x) => x.id !== burnOpen.id));
+      setBurnOpen(null);
+      return toast.success("🔥 Bananas burned (simulated)");
+    }
+    writeContract({
+      address: VAULT_ADDRESS,
+      abi: vaultAbi,
+      functionName: "earlyClaim",
+      args: [BigInt(burnOpen.id)],
+      chainId: monadMainnet.id,
+    });
     setBurnOpen(null);
-    toast.success("🔥 Bananas burned. Early claim complete.");
   }
+
+  const monDisplay = nativeBal ? Number(formatEther(nativeBal.value)) : 0;
+  const addr = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Not connected";
 
   return (
     <>
@@ -95,15 +211,8 @@ function Staking() {
                 Stake MON and unlock rewards while helping power the James Banana ecosystem.
               </p>
               <div className="mt-6 flex gap-3 flex-wrap">
-                {!connected ? (
-                  <button onClick={connect} className="rounded-full bg-foreground text-[color:var(--banana)] px-6 py-3 font-extrabold shadow-cute hover:scale-105 transition">
-                    🔌 Connect Wallet
-                  </button>
-                ) : (
-                  <button onClick={() => setWrongNetwork((v) => !v)} className="rounded-full bg-white px-6 py-3 font-extrabold shadow-cute border-2 border-foreground">
-                    {wrongNetwork ? "🔴 Wrong Network" : "🟢 Monad Mainnet"}
-                  </button>
-                )}
+                <appkit-button label="🔌 Connect Wallet" balance="hide" />
+                {isConnected && <appkit-network-button />}
                 <a href="#pools" className="rounded-full bg-white px-6 py-3 font-extrabold shadow-cute border-2 border-foreground hover:scale-105 transition">View Pools</a>
               </div>
             </div>
@@ -128,11 +237,13 @@ function Staking() {
       </section>
 
       {/* NETWORK WARNING */}
-      {connected && wrongNetwork && (
+      {wrongNetwork && (
         <section className="mx-auto max-w-7xl px-4 mt-6">
           <div className="rounded-3xl border-4 border-[color:var(--orange-accent)] bg-[color:var(--banana-cream)] p-5 flex flex-col md:flex-row items-center justify-between gap-4 shadow-cute">
             <div className="font-extrabold text-lg">⚠ Please switch to Monad Mainnet to use the vault.</div>
-            <button onClick={fakeSwitch} className="rounded-full bg-foreground text-[color:var(--banana)] px-5 py-2 font-extrabold shadow-cute">Switch Network</button>
+            <button onClick={doSwitch} disabled={switching} className="rounded-full bg-foreground text-[color:var(--banana)] px-5 py-2 font-extrabold shadow-cute disabled:opacity-60">
+              {switching ? "Switching…" : "Switch Network"}
+            </button>
           </div>
         </section>
       )}
@@ -144,12 +255,12 @@ function Staking() {
             <img src={logo.url} className="h-12 w-12 rounded-full ring-banana" alt="" />
             <div>
               <div className="text-xs font-extrabold opacity-70">CONNECTED WALLET</div>
-              <div className="font-extrabold">{connected ? addr : "Not connected"}</div>
+              <div className="font-extrabold">{addr}</div>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <Mini label="MON" value={connected ? mon.toFixed(2) : "—"} emoji="🟣" />
-            <Mini label="$JAMES" value={connected ? james.toLocaleString() : "—"} emoji="🍌" />
+            <Mini label="MON" value={isConnected ? monDisplay.toFixed(4) : "—"} emoji="🟣" />
+            <Mini label="$JAMES" value={isConnected ? james.toLocaleString() : "—"} emoji="🍌" />
             <Mini label="Tier" value={`${tier.emoji} ${tier.name}`} emoji="🏅" />
             <Mini label="Bonus" value={`+${tier.bonus}%`} emoji="✨" />
           </div>
@@ -158,13 +269,13 @@ function Staking() {
           <h3 className="font-extrabold text-2xl">📊 Protocol Dashboard</h3>
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { l: "Total MON Staked", v: 482_910, s: "" },
-              { l: "Rewards Reserved", v: 91_220, s: "" },
-              { l: "Distributed", v: 38_400, s: "" },
-              { l: "Active Stakes", v: 2_318, s: "" },
-              { l: "Vault Balance", v: 612_000, s: "" },
+              { l: "Total MON Staked", v: live ? Number(formatEther(totalStaked)) : 482_910, s: "" },
+              { l: "Rewards Reserved", v: live ? Number(formatEther(rewardsReserved)) : 91_220, s: "" },
+              { l: "Distributed", v: live ? Number(formatEther(distributed)) : 38_400, s: "" },
+              { l: "Active Stakes", v: live ? Number(activeStakes) : 2_318, s: "" },
+              { l: "Vault Balance", v: live ? Number(formatEther(totalStaked + rewardsReserved)) : 612_000, s: "" },
               { l: "Allowance", v: 250_000, s: "" },
-              { l: "Coverage", v: 84, s: "%" },
+              { l: "Coverage", v: Math.round(coverage), s: "%" },
               { l: "Users", v: 7421, s: "" },
             ].map((m) => (
               <div key={m.l} className="rounded-2xl bg-white/90 p-3 text-center shadow-cute">
@@ -225,7 +336,7 @@ function Staking() {
           <label className="mt-4 block text-sm font-extrabold opacity-70">Stake amount (MON)</label>
           <div className="mt-1 flex items-center gap-2 rounded-2xl bg-[color:var(--banana-cream)] p-2">
             <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className="flex-1 bg-transparent px-3 py-2 outline-none font-extrabold text-xl" />
-            <button onClick={() => setAmount(mon.toString())} className="rounded-full bg-foreground text-[color:var(--banana)] px-3 py-1.5 text-xs font-extrabold">MAX</button>
+            <button onClick={() => setAmount(monDisplay.toString())} className="rounded-full bg-foreground text-[color:var(--banana)] px-3 py-1.5 text-xs font-extrabold">MAX</button>
           </div>
           <div className="mt-4 space-y-2">
             <Row k="Pool" v={`${pool.emoji} ${pool.name} · ${pool.days}d · ${pool.apy}%`} />
@@ -234,12 +345,12 @@ function Staking() {
             <div className="h-px bg-[color:var(--banana)]/40 my-2" />
             <Row k="Final Reward" v={`${finalReward.toFixed(4)} MON`} highlight />
           </div>
-          <button onClick={stake} className="mt-5 w-full rounded-2xl bg-banana-gradient py-4 font-extrabold text-lg shadow-cute border-2 border-white hover:scale-[1.02] transition">
-            🍌 Stake Now
+          <button onClick={stake} disabled={writing || confirming} className="mt-5 w-full rounded-2xl bg-banana-gradient py-4 font-extrabold text-lg shadow-cute border-2 border-white hover:scale-[1.02] transition disabled:opacity-60">
+            {writing ? "🦊 Confirm in wallet…" : confirming ? "⏳ Confirming…" : "🍌 Stake Now"}
           </button>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-extrabold">
-            <div className="rounded-xl bg-[color:var(--banana-cream)] py-2">Vault Coverage: 84% 🟢</div>
-            <div className="rounded-xl bg-[color:var(--banana-cream)] py-2">Allowance: OK 🟢</div>
+            <div className="rounded-xl bg-[color:var(--banana-cream)] py-2">Vault Coverage: {coverage.toFixed(0)}% {coverage > 50 ? "🟢" : "🟠"}</div>
+            <div className="rounded-xl bg-[color:var(--banana-cream)] py-2">Bonus: +{tier.bonus}% 🟢</div>
             <div className="rounded-xl bg-[color:var(--banana-cream)] py-2">Emergency: Off 🟢</div>
           </div>
         </div>

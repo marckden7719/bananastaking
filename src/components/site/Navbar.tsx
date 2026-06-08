@@ -31,6 +31,7 @@ export function Navbar() {
             <Link to="/staking" className="ml-2 px-4 py-2 rounded-full bg-banana-gradient text-foreground font-extrabold shadow-cute border-2 border-white hover:scale-105 transition">
               🍌 Staking
             </Link>
+            <appkit-button balance="hide" size="sm" />
           </nav>
           <button onClick={() => setOpen(!open)} className="md:hidden rounded-full bg-[color:var(--banana)] p-2 shadow-cute" aria-label="menu">
             <span className="block h-0.5 w-5 bg-foreground mb-1"></span>
