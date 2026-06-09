@@ -12,4 +12,11 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // CRITICAL: Force-enable Nitro with Vercel preset.
+  // Without this, @lovable.dev/vite-tanstack-config skips the nitro deploy plugin
+  // when not running inside a Lovable sandbox, which means Vercel gets raw Vite SSR
+  // output with no serverless function → every route returns 404.
+  nitro: {
+    preset: "vercel",
+  },
 });
