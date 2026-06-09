@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import logo from "@/assets/logobanana.jpg.asset.json";
+import logo from "@/assets/logobanana.jpg?url";
 
 const links = [
   { href: "/#about", label: "About" },
@@ -17,7 +17,7 @@ export function Navbar() {
       <div className="mx-auto max-w-7xl rounded-3xl border-2 border-[color:var(--banana)]/40 bg-white/85 backdrop-blur-md shadow-cute">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <Link to="/" className="flex items-center gap-2 group">
-            <img src={logo.url} alt="James Banana" className="h-10 w-10 rounded-full ring-banana group-hover:animate-wobble" />
+            <img src={logo} alt="James Banana" className="h-10 w-10 rounded-full ring-banana group-hover:animate-wobble" />
             <span className="font-display text-xl font-extrabold tracking-tight">
               James <span className="text-[color:var(--orange-accent)]">Banana</span>
             </span>

@@ -1,11 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import logo from "@/assets/logobanana.jpg.asset.json";
-import banner from "@/assets/bannerbanana.jpeg.asset.json";
-import asset1 from "@/assets/assets1.jpg.asset.json";
-import asset2 from "@/assets/assets2.jpeg.asset.json";
-import video from "@/assets/videobanana.mp4.asset.json";
+import logo from "@/assets/logobanana.jpg?url";
+import banner from "@/assets/bannerbanana.jpeg?url";
+import asset1 from "@/assets/assets1.jpg?url";
+import asset2 from "@/assets/assets2.jpeg?url";
+import video from "@/assets/videobanana.mp4?url";
 import { FloatingBananas } from "@/components/site/FloatingBananas";
 import { Counter } from "@/components/site/Counter";
 
@@ -16,7 +16,7 @@ export const Route = createFileRoute("/")({
       { name: "description", content: "James Banana — the mysterious cat trapped in a banana peel. Create AI meme videos, watch Banana TV, and stake $JAMES on Monad." },
       { property: "og:title", content: "JAMES BANANA | AI Meme Video Generator On Monad" },
       { property: "og:description", content: "Create hilarious AI-generated meme videos with James Banana and stake on Monad." },
-      { property: "og:image", content: logo.url },
+      { property: "og:image", content: logo },
     ],
     links: [{ rel: "canonical", href: "/" }],
   }),
@@ -33,7 +33,7 @@ function Index() {
       {/* HERO */}
       <Section className="!pt-10">
         <div className="relative overflow-hidden rounded-[36px] border-4 border-white shadow-pop">
-          <img src={banner.url} alt="Banana Meme — New King Meme — $JAMES THE BANANA" className="absolute inset-0 h-full w-full object-cover" />
+          <img src={banner} alt="Banana Meme — New King Meme — $JAMES THE BANANA" className="absolute inset-0 h-full w-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-br from-[color:var(--banana)]/70 via-[color:var(--banana-cream)]/40 to-[color:var(--leaf)]/30" />
           <FloatingBananas count={18} />
           <div className="relative grid md:grid-cols-2 gap-8 p-6 md:p-14">
@@ -59,7 +59,7 @@ function Index() {
             <div className="relative flex items-center justify-center min-h-[280px]">
               <motion.div className="absolute h-64 w-64 md:h-80 md:w-80 rounded-full bg-banana-gradient blur-2xl opacity-60" animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 4, repeat: Infinity }} />
               <motion.img
-                src={logo.url}
+                src={logo}
                 alt="James Banana mascot"
                 className="relative h-64 w-64 md:h-80 md:w-80 rounded-full ring-banana shadow-pop border-4 border-white"
                 animate={{ y: [0, -20, 0], rotate: [-4, 4, -4] }}
@@ -77,7 +77,7 @@ function Index() {
       <Section id="about">
         <div className="grid md:grid-cols-2 gap-8 items-center">
           <div className="relative">
-            <img src={asset1.url} alt="Banana Cat character design notes" className="rounded-[28px] border-4 border-white shadow-pop rotate-[-3deg]" />
+            <img src={asset1} alt="Banana Cat character design notes" className="rounded-[28px] border-4 border-white shadow-pop rotate-[-3deg]" />
             <div className="absolute -bottom-4 -right-4 rounded-2xl bg-[color:var(--leaf)] text-white px-4 py-2 font-extrabold shadow-cute rotate-3">PROJECT B</div>
           </div>
           <div>
@@ -155,7 +155,7 @@ function Index() {
         </div>
         <div className="mt-10 relative mx-auto max-w-3xl">
           <div className="relative rounded-[32px] border-4 border-[color:var(--banana)] bg-[color:var(--banana-cream)] p-3 shadow-pop">
-            <video src={video.url} autoPlay loop muted playsInline className="w-full rounded-[20px]" />
+            <video src={video} autoPlay loop muted playsInline className="w-full rounded-[20px]" />
             <span className="absolute -top-6 -left-6 text-5xl animate-float">🤣</span>
             <span className="absolute -top-8 right-10 text-4xl animate-float" style={{ animationDelay: "0.6s" }}>😂</span>
             <span className="absolute -bottom-6 -right-6 text-5xl animate-float" style={{ animationDelay: "1.2s" }}>🔥</span>
@@ -169,7 +169,7 @@ function Index() {
       <Section>
         <h2 className="text-4xl md:text-5xl font-extrabold text-center">🖼 Banana Archives</h2>
         <div className="mt-10 columns-1 sm:columns-2 lg:columns-3 gap-5 [column-fill:_balance]">
-          {[asset1.url, banner.url, asset2.url, logo.url].map((src,i)=>(
+          {[asset1, banner, asset2, logo].map((src,i)=>(
             <motion.div key={i} whileHover={{ scale: 1.03, rotate: i % 2 ? 1 : -1 }} className="mb-5 break-inside-avoid rounded-[24px] overflow-hidden border-4 border-white shadow-cute bg-white">
               <img src={src} alt={`Banana archive ${i+1}`} loading="lazy" className="w-full h-auto block" />
             </motion.div>

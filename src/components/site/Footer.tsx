@@ -1,4 +1,4 @@
-import logo from "@/assets/logobanana.jpg.asset.json";
+import logo from "@/assets/logobanana.jpg?url";
 
 export function Footer() {
   return (
@@ -7,7 +7,7 @@ export function Footer() {
         <div className="absolute -right-10 -bottom-10 text-[160px] opacity-20 select-none">🍌</div>
         <div className="relative flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <img src={logo.url} alt="James Banana" className="h-14 w-14 rounded-full ring-banana" />
+            <img src={logo} alt="James Banana" className="h-14 w-14 rounded-full ring-banana" />
             <div>
               <div className="font-display text-2xl font-extrabold">James Banana</div>
               <div className="text-sm font-bold opacity-80">$JAMES · Monad Mainnet</div>

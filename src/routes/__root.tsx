@@ -14,7 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "sonner";
 import { Navbar } from "@/components/site/Navbar";
 import { Footer } from "@/components/site/Footer";
-import logo from "@/assets/logobanana.jpg.asset.json";
+import logo from "@/assets/logobanana.jpg?url";
 import { Web3Provider } from "@/components/web3/Web3Provider";
 
 function NotFoundComponent() {
@@ -89,15 +89,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:title", content: "JAMES BANANA | AI Meme Video Generator On Monad" },
       { property: "og:description", content: "Create hilarious AI-generated meme videos with James Banana and stake on Monad." },
       { property: "og:type", content: "website" },
-      { property: "og:image", content: logo.url },
+      { property: "og:image", content: logo },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@jamescatbanana" },
-      { name: "twitter:image", content: logo.url },
+      { name: "twitter:image", content: logo },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: logo.url },
-      { rel: "apple-touch-icon", href: logo.url },
+      { rel: "icon", href: logo },
+      { rel: "apple-touch-icon", href: logo },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;700;800&display=swap" },
