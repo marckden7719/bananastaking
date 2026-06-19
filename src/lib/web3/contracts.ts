@@ -2,14 +2,14 @@
 // Deployed on Monad Mainnet (Chain ID: 143)
 
 export const STAKING_CONTRACT_ADDRESS =
-  "0x3C81F9883B852Af0e489D7924CC4CC3A3aB2a911" as `0x${string}`;
+  "0x60c80270dCceE8Aa6C36aea35BfE4172a05a7777" as `0x${string}`;
 
 // Keep legacy alias so existing imports don't break
 export const VAULT_ADDRESS = STAKING_CONTRACT_ADDRESS;
 
 // JAMES token address
 export const JAMES_TOKEN_ADDRESS =
-  "0xC613cFB15278ce6F3aC510BDB51a856Ae60E7777" as `0x${string}`;
+  "0x60c80270dCceE8Aa6C36aea35BfE4172a05a7777" as `0x${string}`;
 
 export const hasContracts = () =>
   STAKING_CONTRACT_ADDRESS !== "0x0000000000000000000000000000000000000000";
