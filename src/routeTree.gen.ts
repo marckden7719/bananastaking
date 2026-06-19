@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as StakingRouteImport } from './routes/staking'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as StakingStakeStakeIdRouteImport } from './routes/staking.stake.$stakeId'
 
 const StakingRoute = StakingRouteImport.update({
   id: '/staking',
@@ -28,35 +29,43 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StakingStakeStakeIdRoute = StakingStakeStakeIdRouteImport.update({
+  id: '/stake/$stakeId',
+  path: '/stake/$stakeId',
+  getParentRoute: () => StakingRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/staking': typeof StakingRoute
+  '/staking': typeof StakingRouteWithChildren
+  '/staking/stake/$stakeId': typeof StakingStakeStakeIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/staking': typeof StakingRoute
+  '/staking': typeof StakingRouteWithChildren
+  '/staking/stake/$stakeId': typeof StakingStakeStakeIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/staking': typeof StakingRoute
+  '/staking': typeof StakingRouteWithChildren
+  '/staking/stake/$stakeId': typeof StakingStakeStakeIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sitemap.xml' | '/staking'
+  fullPaths: '/' | '/sitemap.xml' | '/staking' | '/staking/stake/$stakeId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/sitemap.xml' | '/staking'
-  id: '__root__' | '/' | '/sitemap.xml' | '/staking'
+  to: '/' | '/sitemap.xml' | '/staking' | '/staking/stake/$stakeId'
+  id: '__root__' | '/' | '/sitemap.xml' | '/staking' | '/staking/stake/$stakeId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
-  StakingRoute: typeof StakingRoute
+  StakingRoute: typeof StakingRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -82,13 +91,31 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/staking/stake/$stakeId': {
+      id: '/staking/stake/$stakeId'
+      path: '/stake/$stakeId'
+      fullPath: '/staking/stake/$stakeId'
+      preLoaderRoute: typeof StakingStakeStakeIdRouteImport
+      parentRoute: typeof StakingRoute
+    }
   }
 }
+
+interface StakingRouteChildren {
+  StakingStakeStakeIdRoute: typeof StakingStakeStakeIdRoute
+}
+
+const StakingRouteChildren: StakingRouteChildren = {
+  StakingStakeStakeIdRoute: StakingStakeStakeIdRoute,
+}
+
+const StakingRouteWithChildren =
+  StakingRoute._addFileChildren(StakingRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
-  StakingRoute: StakingRoute,
+  StakingRoute: StakingRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
