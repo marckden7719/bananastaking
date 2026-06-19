@@ -8,7 +8,7 @@ import {
   writeContract,
   waitForTransactionReceipt,
 } from "@wagmi/core";
-import { parseEther, formatEther } from "viem";
+import { parseEther, formatEther, formatUnits } from "viem";
 import { wagmiConfig } from "@/lib/web3/config";
 import {
   STAKING_CONTRACT_ADDRESS,
@@ -23,80 +23,69 @@ import type { Address } from "viem";
 // ---------------------------------------------------------------------------
 
 export interface ProtocolSummary {
-  totalUsers: bigint;
-  activeStakes: bigint;
-  totalMonStaked: bigint;
-  rewardsReserved: bigint;
-  rewardsDistributed: bigint;
-  burnedPenalty: bigint;
-}
-
-export interface DashboardStats {
-  totalActiveStakes: bigint;
-  totalUsers: bigint;
-  totalStakedMON: bigint;
-  totalRewardsReserved: bigint;
-  totalRewardsDistributed: bigint;
-  totalBurnedPenalty: bigint;
-  vaultBalance: bigint;
-  vaultAllowance: bigint;
-  vaultCoverage: bigint;
+  totalStakes: bigint;
+  reservedMon: bigint;
+  treasuryBalance: bigint;
+  availableMon: bigint;
   emergencyMode: boolean;
+  refundMode: boolean;
   paused: boolean;
-  rewardMultiplier: bigint;
-  minHolding: bigint;
 }
 
-export interface VaultStatus {
-  vaultBalance: bigint;
-  vaultAllowance: bigint;
-  reservedRewards: bigint;
-  coverage: bigint;
-  healthy: boolean;
-}
-
-export interface UserDashboard {
-  monBalance: bigint;
-  jamesBalance: bigint;
-  currentTier: number;
-  currentBonus: number;
-  activeStakeCount: bigint;
-  pendingRewards: bigint;
-  totalStaked: bigint;
-  rewardsEarned: bigint;
-}
-
-export interface StakeDetail {
-  amount: bigint;
-  reward: bigint;
-  startTime: number;
-  unlockTime: number;
-  holderTier: number;
-  claimed: boolean;
+export interface Pool {
+  poolId: bigint;
+  name: string;
+  duration: bigint;
+  rewardPercentage: bigint;
+  status: number;
 }
 
 export interface ActiveStake {
   stakeId: bigint;
+  token: Address;
   amount: bigint;
-  reward: bigint;
-  poolId: number;
-  tier: number;
-  startTime: number;
-  unlockTime: number;
-  status: number; // 0=active, 1=claimed, 2=burned
-}
-
-export interface RewardCalculation {
-  baseReward: bigint;
-  tierBonus: bigint;
-  finalReward: bigint;
+  poolId: bigint;
+  rewardMon: bigint;
+  startTime: bigint;
+  unlockTime: bigint;
+  status: number;
+  snapshotValueMon: bigint;
+  stakeFee: bigint;
+  effectiveValueMon: bigint;
+  snapshotJamesBalance: bigint;
 }
 
 export interface Eligibility {
   eligible: boolean;
-  requiredHolding: bigint;
-  currentBalance: bigint;
-  reason: string;
+  jamesBalance: bigint;
+}
+
+export interface PendingReward {
+  reward: bigint;
+  unlocked: boolean;
+}
+
+export interface EarlyExitPenalty {
+  jamesBurnPenalty: bigint;
+  userCanAfford: boolean;
+}
+
+export interface StakePreview {
+  snapshotValue: bigint;
+  rewardMon: bigint;
+  treasuryCanAfford: boolean;
+}
+
+export interface TokenStatus {
+  graduated: boolean;
+  migrated: boolean;
+  nonGraduated: boolean;
+  bondingCurve: boolean;
+}
+
+export interface EmergencyStatus {
+  emergencyMode: boolean;
+  refundMode: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,12 +100,13 @@ export async function getProtocolSummary(): Promise<ProtocolSummary | null> {
       functionName: "protocolSummary",
     });
     return {
-      totalUsers: result[0],
-      activeStakes: result[1],
-      totalMonStaked: result[2],
-      rewardsReserved: result[3],
-      rewardsDistributed: result[4],
-      burnedPenalty: result[5],
+      totalStakes: result[0],
+      reservedMon: result[1],
+      treasuryBalance: result[2],
+      availableMon: result[3],
+      emergencyMode: result[4],
+      refundMode: result[5],
+      paused: result[6],
     };
   } catch (err) {
     console.error("[stakingService] protocolSummary failed:", err);
@@ -124,55 +114,71 @@ export async function getProtocolSummary(): Promise<ProtocolSummary | null> {
   }
 }
 
-export async function getDashboardStats(): Promise<DashboardStats | null> {
+export async function getVaultCoverage(): Promise<bigint> {
   try {
     const result = await readContract(wagmiConfig, {
       address: STAKING_CONTRACT_ADDRESS,
       abi: vaultAbi,
-      functionName: "getDashboardStats",
+      functionName: "vaultCoverage",
+    });
+    return result as bigint;
+  } catch (err) {
+    console.error("[stakingService] vaultCoverage failed:", err);
+    return 0n;
+  }
+}
+
+export async function getEmergencyStatus(): Promise<EmergencyStatus | null> {
+  try {
+    const result = await readContract(wagmiConfig, {
+      address: STAKING_CONTRACT_ADDRESS,
+      abi: vaultAbi,
+      functionName: "getEmergencyStatus",
     });
     return {
-      totalActiveStakes: result[0],
-      totalUsers: result[1],
-      totalStakedMON: result[2],
-      totalRewardsReserved: result[3],
-      totalRewardsDistributed: result[4],
-      totalBurnedPenalty: result[5],
-      vaultBalance: result[6],
-      vaultAllowance: result[7],
-      vaultCoverage: result[8],
-      emergencyMode: result[9],
-      paused: result[10],
-      rewardMultiplier: result[11],
-      minHolding: result[12],
+      emergencyMode: result[0],
+      refundMode: result[1],
     };
   } catch (err) {
-    console.error("[stakingService] getDashboardStats failed:", err);
+    console.error("[stakingService] getEmergencyStatus failed:", err);
     return null;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Read: Vault status
-// ---------------------------------------------------------------------------
-
-export async function getVaultStatus(): Promise<VaultStatus | null> {
+export async function getAllPools(): Promise<Pool[]> {
   try {
     const result = await readContract(wagmiConfig, {
       address: STAKING_CONTRACT_ADDRESS,
       abi: vaultAbi,
-      functionName: "vaultStatus",
+      functionName: "getAllPools",
     });
-    return {
-      vaultBalance: result[0],
-      vaultAllowance: result[1],
-      reservedRewards: result[2],
-      coverage: result[3],
-      healthy: result[4],
-    };
+    return (result as readonly unknown[]).map((p) => {
+      const t = p as readonly [bigint, string, bigint, bigint, number];
+      return {
+        poolId: t[0],
+        name: t[1],
+        duration: t[2],
+        rewardPercentage: t[3],
+        status: t[4],
+      };
+    });
   } catch (err) {
-    console.error("[stakingService] vaultStatus failed:", err);
-    return null;
+    console.error("[stakingService] getAllPools failed:", err);
+    return [];
+  }
+}
+
+export async function getStakeCount(): Promise<bigint> {
+  try {
+    const result = await readContract(wagmiConfig, {
+      address: STAKING_CONTRACT_ADDRESS,
+      abi: vaultAbi,
+      functionName: "getStakeCount",
+    });
+    return result as bigint;
+  } catch (err) {
+    console.error("[stakingService] getStakeCount failed:", err);
+    return 0n;
   }
 }
 
@@ -180,28 +186,20 @@ export async function getVaultStatus(): Promise<VaultStatus | null> {
 // Read: User-level
 // ---------------------------------------------------------------------------
 
-export async function getUserDashboard(
-  user: Address
-): Promise<UserDashboard | null> {
+export async function checkEligibility(user: Address): Promise<Eligibility | null> {
   try {
     const result = await readContract(wagmiConfig, {
       address: STAKING_CONTRACT_ADDRESS,
       abi: vaultAbi,
-      functionName: "getUserDashboard",
+      functionName: "isEligibleForStaking",
       args: [user],
     });
     return {
-      monBalance: result[0],
+      eligible: result[0],
       jamesBalance: result[1],
-      currentTier: result[2],
-      currentBonus: result[3],
-      activeStakeCount: result[4],
-      pendingRewards: result[5],
-      totalStaked: result[6],
-      rewardsEarned: result[7],
     };
   } catch (err) {
-    console.error("[stakingService] getUserDashboard failed:", err);
+    console.error("[stakingService] isEligibleForStaking failed:", err);
     return null;
   }
 }
@@ -217,16 +215,33 @@ export async function getUserActiveStakes(
       args: [user],
     });
     return (result as readonly unknown[]).map((s) => {
-      const t = s as readonly [bigint, bigint, bigint, number, number, number, number, number];
+      const t = s as readonly [
+        bigint,
+        Address,
+        bigint,
+        bigint,
+        bigint,
+        bigint,
+        bigint,
+        number,
+        bigint,
+        bigint,
+        bigint,
+        bigint
+      ];
       return {
         stakeId: t[0],
-        amount: t[1],
-        reward: t[2],
+        token: t[1],
+        amount: t[2],
         poolId: t[3],
-        tier: t[4],
+        rewardMon: t[4],
         startTime: t[5],
         unlockTime: t[6],
         status: t[7],
+        snapshotValueMon: t[8],
+        stakeFee: t[9],
+        effectiveValueMon: t[10],
+        snapshotJamesBalance: t[11],
       };
     });
   } catch (err) {
@@ -235,47 +250,7 @@ export async function getUserActiveStakes(
   }
 }
 
-export async function getStake(
-  user: Address,
-  stakeId: bigint
-): Promise<StakeDetail | null> {
-  try {
-    const result = await readContract(wagmiConfig, {
-      address: STAKING_CONTRACT_ADDRESS,
-      abi: vaultAbi,
-      functionName: "getStake",
-      args: [user, stakeId],
-    });
-    return {
-      amount: result[0],
-      reward: result[1],
-      startTime: result[2],
-      unlockTime: result[3],
-      holderTier: result[4],
-      claimed: result[5],
-    };
-  } catch (err) {
-    console.error("[stakingService] getStake failed:", err);
-    return null;
-  }
-}
-
-export async function getActiveStakeIds(user: Address): Promise<bigint[]> {
-  try {
-    const result = await readContract(wagmiConfig, {
-      address: STAKING_CONTRACT_ADDRESS,
-      abi: vaultAbi,
-      functionName: "activeStakeIds",
-      args: [user],
-    });
-    return result as bigint[];
-  } catch (err) {
-    console.error("[stakingService] activeStakeIds failed:", err);
-    return [];
-  }
-}
-
-export async function getPendingReward(stakeId: bigint): Promise<bigint> {
+export async function getPendingReward(stakeId: bigint): Promise<PendingReward | null> {
   try {
     const result = await readContract(wagmiConfig, {
       address: STAKING_CONTRACT_ADDRESS,
@@ -283,104 +258,194 @@ export async function getPendingReward(stakeId: bigint): Promise<bigint> {
       functionName: "pendingReward",
       args: [stakeId],
     });
-    return result as bigint;
+    return {
+      reward: result[0],
+      unlocked: result[1],
+    };
   } catch (err) {
     console.error("[stakingService] pendingReward failed:", err);
-    return 0n;
+    return null;
   }
 }
 
-export async function getRequiredBurnAmount(
-  user: Address,
-  stakeId: bigint
-): Promise<bigint> {
+export async function previewEarlyExitPenalty(stakeId: bigint): Promise<EarlyExitPenalty | null> {
   try {
     const result = await readContract(wagmiConfig, {
       address: STAKING_CONTRACT_ADDRESS,
       abi: vaultAbi,
-      functionName: "requiredBurnAmount",
-      args: [user, stakeId],
+      functionName: "previewEarlyExitPenalty",
+      args: [stakeId],
+    });
+    return {
+      jamesBurnPenalty: result[0],
+      userCanAfford: result[1],
+    };
+  } catch (err) {
+    console.error("[stakingService] previewEarlyExitPenalty failed:", err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Read: Token-level
+// ---------------------------------------------------------------------------
+
+export async function getCurrentTokenValue(token: Address, amount: bigint): Promise<bigint> {
+  try {
+    const result = await readContract(wagmiConfig, {
+      address: STAKING_CONTRACT_ADDRESS,
+      abi: vaultAbi,
+      functionName: "getCurrentTokenValue",
+      args: [token, amount],
     });
     return result as bigint;
   } catch (err) {
-    console.error("[stakingService] requiredBurnAmount failed:", err);
+    console.error("[stakingService] getCurrentTokenValue failed:", err);
     return 0n;
   }
 }
 
-export async function calculateReward(
-  amount: bigint,
-  poolId: number
-): Promise<RewardCalculation | null> {
+export async function previewStake(token: Address, amount: bigint, poolId: bigint): Promise<StakePreview | null> {
   try {
     const result = await readContract(wagmiConfig, {
       address: STAKING_CONTRACT_ADDRESS,
       abi: vaultAbi,
-      functionName: "calculateReward",
-      args: [amount, poolId],
+      functionName: "previewStake",
+      args: [token, amount, poolId],
     });
     return {
-      baseReward: result[0],
-      tierBonus: result[1],
-      finalReward: result[2],
+      snapshotValue: result[0],
+      rewardMon: result[1],
+      treasuryCanAfford: result[2],
     };
   } catch (err) {
-    console.error("[stakingService] calculateReward failed:", err);
+    console.error("[stakingService] previewStake failed:", err);
     return null;
   }
 }
 
-export async function checkEligibility(user: Address): Promise<Eligibility | null> {
+export async function isTokenGraduated(token: Address): Promise<TokenStatus | null> {
   try {
     const result = await readContract(wagmiConfig, {
       address: STAKING_CONTRACT_ADDRESS,
       abi: vaultAbi,
-      functionName: "isEligibleForStaking",
-      args: [user],
+      functionName: "isTokenGraduated",
+      args: [token],
     });
     return {
-      eligible: result[0],
-      requiredHolding: result[1],
-      currentBalance: result[2],
-      reason: result[3],
+      graduated: result[0],
+      migrated: result[1],
+      nonGraduated: result[2],
+      bondingCurve: result[3],
     };
   } catch (err) {
-    console.error("[stakingService] isEligibleForStaking failed:", err);
+    console.error("[stakingService] isTokenGraduated failed:", err);
     return null;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Read: JAMES token balance
+// Read: ERC20
 // ---------------------------------------------------------------------------
 
-export async function getJamesBalance(user: Address): Promise<bigint> {
+export async function getTokenDecimals(token: Address): Promise<number> {
   try {
     const result = await readContract(wagmiConfig, {
-      address: JAMES_TOKEN_ADDRESS,
+      address: token,
+      abi: erc20Abi,
+      functionName: "decimals",
+    });
+    return Number(result);
+  } catch (err) {
+    console.error("[stakingService] getTokenDecimals failed:", err);
+    return 18;
+  }
+}
+
+export async function getTokenSymbol(token: Address): Promise<string> {
+  try {
+    const result = await readContract(wagmiConfig, {
+      address: token,
+      abi: erc20Abi,
+      functionName: "symbol",
+    });
+    return result as string;
+  } catch (err) {
+    console.error("[stakingService] getTokenSymbol failed:", err);
+    return "UNKNOWN";
+  }
+}
+
+export async function getTokenName(token: Address): Promise<string> {
+  try {
+    const result = await readContract(wagmiConfig, {
+      address: token,
+      abi: erc20Abi,
+      functionName: "name",
+    });
+    return result as string;
+  } catch (err) {
+    console.error("[stakingService] getTokenName failed:", err);
+    return "Unknown Token";
+  }
+}
+
+export async function getTokenBalance(token: Address, user: Address): Promise<bigint> {
+  try {
+    const result = await readContract(wagmiConfig, {
+      address: token,
       abi: erc20Abi,
       functionName: "balanceOf",
       args: [user],
     });
     return result as bigint;
   } catch (err) {
-    console.error("[stakingService] JAMES balanceOf failed:", err);
+    console.error("[stakingService] getTokenBalance failed:", err);
     return 0n;
   }
+}
+
+export async function getTokenAllowance(token: Address, owner: Address, spender: Address): Promise<bigint> {
+  try {
+    const result = await readContract(wagmiConfig, {
+      address: token,
+      abi: erc20Abi,
+      functionName: "allowance",
+      args: [owner, spender],
+    });
+    return result as bigint;
+  } catch (err) {
+    console.error("[stakingService] getTokenAllowance failed:", err);
+    return 0n;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Write: Approve
+// ---------------------------------------------------------------------------
+
+export async function approveToken(token: Address, spender: Address, amount: bigint) {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: token,
+    abi: erc20Abi,
+    functionName: "approve",
+    args: [spender, amount],
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
 }
 
 // ---------------------------------------------------------------------------
 // Write: Stake
 // ---------------------------------------------------------------------------
 
-export async function stakeMon(poolId: number, amountMon: string) {
-  const amountWei = parseEther(amountMon);
+export async function stake(token: Address, amount: bigint, poolId: bigint) {
   const { request } = await simulateContract(wagmiConfig, {
     address: STAKING_CONTRACT_ADDRESS,
     abi: vaultAbi,
     functionName: "stake",
-    args: [poolId],
-    value: amountWei,
+    args: [token, amount, poolId],
   });
   const hash = await writeContract(wagmiConfig, request);
   const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
@@ -404,15 +469,145 @@ export async function claimReward(stakeId: bigint) {
 }
 
 // ---------------------------------------------------------------------------
-// Write: Early Claim (with burn penalty)
+// Write: Early Unstake
 // ---------------------------------------------------------------------------
 
-export async function earlyClaimReward(stakeId: bigint) {
+export async function earlyUnstake(stakeId: bigint) {
   const { request } = await simulateContract(wagmiConfig, {
     address: STAKING_CONTRACT_ADDRESS,
     abi: vaultAbi,
-    functionName: "earlyClaim",
+    functionName: "earlyUnstake",
     args: [stakeId],
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+// ---------------------------------------------------------------------------
+// Write: Admin
+// ---------------------------------------------------------------------------
+
+export async function fundRewards(amount: string) {
+  const amountWei = parseEther(amount);
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "fundRewards",
+    value: amountWei,
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function pauseContract() {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "pause",
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function unpauseContract() {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "unpause",
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function enableEmergencyMode() {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "enableEmergencyMode",
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function disableEmergencyMode() {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "disableEmergencyMode",
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function enableEmergencyRefundMode() {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "enableEmergencyRefundMode",
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function disableEmergencyRefundMode() {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "disableEmergencyRefundMode",
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function setPool(poolId: bigint, name: string, duration: bigint, rewardPercentage: bigint, status: number) {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "setPool",
+    args: [poolId, name, duration, rewardPercentage, status],
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function setFeeRecipient(recipient: Address) {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "setFeeRecipient",
+    args: [recipient],
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function setJamesToken(token: Address) {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "setJamesToken",
+    args: [token],
+  });
+  const hash = await writeContract(wagmiConfig, request);
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  return { hash, receipt };
+}
+
+export async function withdrawSurplusMON() {
+  const { request } = await simulateContract(wagmiConfig, {
+    address: STAKING_CONTRACT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "withdrawSurplusMON",
   });
   const hash = await writeContract(wagmiConfig, request);
   const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
@@ -431,14 +626,56 @@ export function formatMonExact(wei: bigint): number {
   return Number(formatEther(wei));
 }
 
-export const POOLS = [
-  { id: 0, name: "Banana Lite", days: 7, apy: 30, emoji: "🍌" },
-  { id: 1, name: "Banana Plus", days: 15, apy: 75, emoji: "🍌🍌" },
-  { id: 2, name: "Banana Diamond", days: 30, apy: 180, emoji: "👑🍌" },
-] as const;
+// ---------------------------------------------------------------------------
+// Coverage formatting
+// ---------------------------------------------------------------------------
 
-export type PoolConfig = (typeof POOLS)[number];
+/**
+ * MaxUint256 — the contract returns this when reserved rewards are zero,
+ * meaning the vault has effectively infinite coverage.
+ */
+const MAX_UINT256 =
+  115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
-export function getPoolConfig(poolId: number): PoolConfig | undefined {
-  return POOLS.find((p) => p.id === poolId);
+/**
+ * Format the raw vaultCoverage() return value for display.
+ *
+ * The contract returns:
+ *   - type(uint256).max when reserved rewards == 0  → "Infinite"
+ *   - a percentage scaled by 1e18 otherwise         → "123.45%"
+ *
+ * Never renders raw BigInt values.
+ */
+export function formatCoverage(raw: bigint): string {
+  if (raw === MAX_UINT256 || raw >= MAX_UINT256) {
+    return "Infinite";
+  }
+  // Coverage is scaled by 1e18 — convert to percentage
+  const formatted = formatUnits(raw, 18);
+  const num = Number(formatted);
+  if (!Number.isFinite(num)) return "Infinite";
+  return `${num.toFixed(2)}%`;
 }
+
+/**
+ * Determine coverage status label and color class from raw value.
+ * Returns null status when coverage is infinite (no risk).
+ */
+export function getCoverageStatus(raw: bigint): {
+  label: string;
+  colorClass: string;
+} {
+  if (raw === MAX_UINT256 || raw >= MAX_UINT256) {
+    return { label: "Infinite", colorClass: "text-green-600" };
+  }
+  const formatted = formatUnits(raw, 18);
+  const pct = Number(formatted);
+  if (!Number.isFinite(pct) || pct >= 150) {
+    return { label: "Healthy", colorClass: "text-green-600" };
+  }
+  if (pct >= 110) return { label: "Warning", colorClass: "text-yellow-600" };
+  if (pct >= 100) return { label: "Critical", colorClass: "text-orange-600" };
+  return { label: "Danger", colorClass: "text-red-600" };
+}
+
+export const MIN_JAMES_REQUIRED = 1000000n; // 1,000,000 JAMES
