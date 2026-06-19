@@ -12,11 +12,13 @@ import {
   useWaitForTransactionReceipt,
   useWatchContractEvent,
 } from "wagmi";
+import { simulateContract } from "wagmi/actions";
 import { formatEther, formatUnits, parseEther, parseUnits, zeroAddress } from "viem";
 import logo from "@/assets/logobanana.jpg?url";
 import { FloatingBananas } from "@/components/site/FloatingBananas";
 import { Counter } from "@/components/site/Counter";
 import { monadMainnet } from "@/lib/web3/chain";
+import { wagmiConfig } from "@/lib/web3/config";
 import {
   STAKING_CONTRACT_ADDRESS,
   JAMES_TOKEN_ADDRESS,
@@ -454,24 +456,63 @@ function Staking() {
       setStep("approving");
       toast("Approving token — confirm in wallet...");
       console.log("[STAKE] Calling approve:", tokenAddr, STAKING_CONTRACT_ADDRESS, amountWei.toString());
+
+      // Simulate first to catch revert reasons
+      let gasEstimate: bigint | undefined;
+      try {
+        const simResult = await simulateContract(wagmiConfig, {
+          address: tokenAddr, abi: erc20Abi, functionName: "approve",
+          args: [STAKING_CONTRACT_ADDRESS, amountWei], chainId: monadMainnet.id,
+          account: userAddr,
+        });
+        console.log("[STAKE] Approve simulation OK:", simResult.request);
+        // Use simulated gas if available
+        if (simResult.request.gas) {
+          gasEstimate = simResult.request.gas;
+          console.log("[STAKE] Approve gas from simulate:", gasEstimate.toString());
+        }
+      } catch (simErr: any) {
+        console.error("[STAKE] Approve simulation failed:", simErr);
+        const simMsg = simErr?.shortMessage || simErr?.details || simErr?.message || "Simulation failed";
+        toast.error(`Approval simulation failed: ${simMsg}`);
+        setStep("idle");
+        return;
+      }
+
+      // Use gas from simulateContract (already estimated)
+      // Add 20% buffer — never exceed Monad block gas limit
+      const gasWithBuffer = (gasEstimate ?? 100000n) * 120n / 100n;
+      console.log("[STAKE] Approve gas with buffer:", gasWithBuffer.toString());
+
       const hash = await writeContractAsync({
         address: tokenAddr, abi: erc20Abi, functionName: "approve",
         args: [STAKING_CONTRACT_ADDRESS, amountWei], chainId: monadMainnet.id,
+        gas: gasWithBuffer,
       });
       console.log("[STAKE] Approval tx hash:", hash);
     } catch (err: any) {
       console.error("[STAKE] Approval error:", err);
-      const msg = err?.shortMessage || err?.message || "Approval failed";
+      console.error("[STAKE] Approval error details:", {
+        shortMessage: err?.shortMessage,
+        message: err?.message,
+        details: err?.details,
+        cause: err?.cause?.message,
+        data: err?.data,
+      });
+      const msg = err?.shortMessage || err?.details || err?.message || "Approval failed";
       toast.error(msg);
       setStep("idle");
     }
-  }, [isConnected, wrongNetwork, tokenAddress, amountWei, writeContractAsync, tokenAddr]);
+  }, [isConnected, wrongNetwork, tokenAddress, amountWei, writeContractAsync, tokenAddr, userAddr]);
 
   const handleStake = useCallback(async () => {
     console.log("[STAKE] handleStake called");
+    console.log("[STAKE] Stake Args:", {
+      token: tokenAddr,
+      amount: amountWei.toString(),
+      poolId: selectedPoolId.toString(),
+    });
     console.log("[STAKE] isConnected:", isConnected, "| wrongNetwork:", wrongNetwork);
-    console.log("[STAKE] tokenAddress:", tokenAddress, "| amountWei:", amountWei.toString());
-    console.log("[STAKE] selectedPoolId:", selectedPoolId.toString());
     console.log("[STAKE] stakePreview:", stakePreview);
     console.log("[STAKE] eligibility:", eligibility);
     console.log("[STAKE] protocolSummary:", protocolSummary);
@@ -491,18 +532,67 @@ function Staking() {
       setStep("staking");
       toast("Creating stake — confirm in wallet...");
       console.log("[STAKE] Calling stake:", tokenAddr, amountWei.toString(), selectedPoolId.toString());
+
+      // Simulate first to catch revert reasons and get gas estimate
+      let gasEstimate: bigint | undefined;
+      try {
+        const simResult = await simulateContract(wagmiConfig, {
+          address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "stake",
+          args: [tokenAddr, amountWei, selectedPoolId], chainId: monadMainnet.id,
+          account: userAddr,
+        });
+        console.log("[STAKE] Stake simulation OK:", simResult.request);
+        if (simResult.request.gas) {
+          gasEstimate = simResult.request.gas;
+          console.log("[STAKE] Stake gas from simulate:", gasEstimate.toString());
+        }
+      } catch (simErr: any) {
+        console.error("[STAKE] Stake simulation failed:", simErr);
+        console.error("[STAKE] Simulation error details:", {
+          shortMessage: simErr?.shortMessage,
+          message: simErr?.message,
+          details: simErr?.details,
+          cause: simErr?.cause?.message,
+          data: simErr?.data,
+        });
+        const simMsg = simErr?.shortMessage || simErr?.details || simErr?.message || "Simulation failed";
+        toast.error(`Stake simulation failed: ${simMsg}`);
+        setStep("idle");
+        return;
+      }
+
+      // Use gas from simulateContract (already estimated)
+      // Add 20% buffer — never exceed Monad block gas limit
+      const gasWithBuffer = (gasEstimate ?? 500000n) * 120n / 100n;
+      console.log("[STAKE] Stake gas with buffer:", gasWithBuffer.toString());
+      console.log("[STAKE] Stake TX Request:", {
+        address: STAKING_CONTRACT_ADDRESS,
+        functionName: "stake",
+        args: [tokenAddr, amountWei.toString(), selectedPoolId.toString()],
+        chainId: monadMainnet.id,
+        gas: gasWithBuffer.toString(),
+      });
+
       const hash = await writeContractAsync({
         address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "stake",
         args: [tokenAddr, amountWei, selectedPoolId], chainId: monadMainnet.id,
+        gas: gasWithBuffer,
       });
       console.log("[STAKE] Stake tx hash:", hash);
     } catch (err: any) {
       console.error("[STAKE] Staking error:", err);
-      const msg = err?.shortMessage || err?.message || "Staking failed";
+      console.error("[STAKE] Staking error details:", {
+        shortMessage: err?.shortMessage,
+        message: err?.message,
+        details: err?.details,
+        cause: err?.cause?.message,
+        data: err?.data,
+      });
+      const msg = err?.shortMessage || err?.details || err?.message || "Staking failed";
       toast.error(msg);
       setStep("idle");
     }
-  }, [isConnected, wrongNetwork, tokenAddress, amountWei, stakePreview, protocolSummary, eligibility, selectedPoolId, writeContractAsync, tokenAddr]);
+  }, [isConnected, wrongNetwork, tokenAddress, amountWei, stakePreview, protocolSummary, eligibility, selectedPoolId, writeContractAsync, tokenAddr, userAddr]);
 
   const startStakeFlow = useCallback(() => {
     console.log("[STAKE] === STAKE BUTTON CLICKED ===");
