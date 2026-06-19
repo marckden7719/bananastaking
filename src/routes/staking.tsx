@@ -26,6 +26,7 @@ import {
   formatMon,
   formatCoverage,
   getCoverageStatus,
+  formatRewardPercent,
   safeBigIntToNumber,
   DEFAULT_POOLS,
   MIN_JAMES_REQUIRED,
@@ -442,7 +443,7 @@ function Staking() {
     if (wrongNetwork) { toast.error("Switch to Monad Mainnet"); return; }
     if (!tokenAddress || tokenAddress === zeroAddress) { toast.error("Enter token address"); return; }
     if (amountWei <= 0n) { toast.error("Enter amount"); return; }
-    if (!stakePreview?.treasuryCanAfford) { toast.error("Treasury cannot afford this reward"); return; }
+    if (!stakePreview?.treasuryCanAfford) { toast.error("Insufficient reward treasury. Please contact the administrator."); return; }
     if (protocolSummary?.emergencyMode || protocolSummary?.paused) { toast.error("Staking is currently disabled"); return; }
     if (!eligibility?.eligible) {
       toast.error(`You need at least ${Number(formatEther(MIN_JAMES_REQUIRED)).toLocaleString()} $JAMES to stake`);
@@ -485,7 +486,7 @@ function Staking() {
       toast.error(`You need at least ${Number(formatEther(MIN_JAMES_REQUIRED)).toLocaleString()} $JAMES to stake`);
       return;
     }
-    if (!stakePreview?.treasuryCanAfford) { toast.error("Treasury cannot afford this reward"); return; }
+    if (!stakePreview?.treasuryCanAfford) { toast.error("Insufficient reward treasury. Please contact the administrator."); return; }
 
     const needsApproval = (tokenAllowance ?? 0n) < amountWei;
     console.log("[STAKE] needsApproval:", needsApproval, "| allowance:", (tokenAllowance ?? 0n).toString(), ">= amount:", amountWei.toString());
@@ -696,12 +697,18 @@ function Staking() {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-extrabold text-xl">{p.name}</div>
-                    <div className="text-sm font-bold opacity-80">{safeBigIntToNumber(p.duration) / 86400} days lock</div>
+                    <div className="text-sm font-bold opacity-80">{safeBigIntToNumber(p.duration) / 86400} Days Lock</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-3xl font-extrabold">{safeBigIntToNumber(p.rewardPercentage) / 100}%</div>
+                    <div className="text-3xl font-extrabold">{formatRewardPercent(p.rewardPercentage)}</div>
                     <div className="text-xs font-extrabold opacity-80">Reward</div>
                   </div>
+                </div>
+                {/* Tooltip */}
+                <div className="mt-3 pt-3 border-t border-foreground/10">
+                  <p className="text-[11px] font-semibold text-foreground/50 leading-tight">
+                    ℹ️ Reward is calculated based on the MON value of your staked token at the time of staking.
+                  </p>
                 </div>
               </motion.button>
             ))}
@@ -758,13 +765,34 @@ function Staking() {
             }} className="rounded-full bg-foreground text-[color:var(--banana)] px-3 py-1.5 text-xs font-extrabold">MAX</button>
           </div>
 
+          {/* Stake Preview / Estimation */}
           <div className="mt-4 space-y-2">
-            {stakePreview && (
-              <>
-                <Row k="Snapshot Value" v={`${formatMon(stakePreview.snapshotValue)} MON`} />
-                <Row k="Reward MON" v={`${formatMon(stakePreview.rewardMon)} MON`} highlight />
-                <Row k="Treasury Status" v={stakePreview.treasuryCanAfford ? "✅ Can afford" : "❌ Cannot afford"} />
-              </>
+            {stakePreview ? (
+              <div className="rounded-2xl bg-[color:var(--banana-cream)] p-4 space-y-3">
+                <div className="text-xs font-extrabold opacity-50 uppercase tracking-wider">Stake Estimation</div>
+                <Row k="Estimated Token Value" v={`${formatMon(stakePreview.snapshotValue)} MON`} />
+                <Row k="Estimated Reward" v={`${formatMon(stakePreview.rewardMon)} MON`} highlight />
+                <Row k="Treasury Available" v={`${formatMon(protocolSummary?.treasuryBalance ?? 0n)} MON`} />
+                {!stakePreview.treasuryCanAfford && (
+                  <div className="mt-2 rounded-xl bg-red-50 border-2 border-red-200 p-3">
+                    <div className="flex items-start gap-2">
+                      <span className="text-lg">⚠️</span>
+                      <div>
+                        <div className="text-xs font-extrabold text-red-700">Insufficient Reward Treasury</div>
+                        <div className="text-[11px] font-semibold text-red-600 mt-0.5 leading-tight">
+                          The staking contract does not have enough MON to cover the reward for this stake. Please contact the administrator.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              tokenAddress && tokenAmount && tokenDecimals !== undefined && amountWei > 0n && (
+                <div className="rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 p-4 text-center">
+                  <div className="text-xs font-bold text-foreground/40">Enter token address and amount to see estimation</div>
+                </div>
+              )
             )}
           </div>
 
