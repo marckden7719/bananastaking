@@ -30,6 +30,8 @@ if (typeof window !== "undefined") {
   console.log("=== JAMES BANANA WEB3 DEBUG ===");
   console.log("window.ethereum", window.ethereum);
   console.log("window.ethereum?.providers", window.ethereum?.providers);
+  console.log("Reown Project ID:", projectId);
+  console.log("Expected origin:", window.location.origin);
 }
 
 // SSR-SAFE: During SSR, WagmiAdapter is a Proxy stub (not a real class).
@@ -40,7 +42,7 @@ const wagmiAdapter =
         projectId,
         ssr: true,
         transports: {
-          [monadMainnet.id]: http(),
+          [monadMainnet.id]: http("https://rpc.monad.xyz"),
         },
         connectors: [
           injected({ shimDisconnect: true, target: "metaMask" }),
@@ -67,7 +69,7 @@ let initialized = false;
 export function initAppKit() {
   if (initialized || typeof window === "undefined" || !wagmiAdapter || !createAppKit) return;
   initialized = true;
-  console.log("Calling createAppKit");
+  console.log("Calling createAppKit with projectId:", projectId);
   createAppKit({
     adapters: [wagmiAdapter],
     networks: [monadMainnet],

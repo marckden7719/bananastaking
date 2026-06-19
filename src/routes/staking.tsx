@@ -103,7 +103,7 @@ function Staking() {
   const [tokenMetadata, setTokenMetadata] = useState<TokenMetadata | null>(null);
 
   // ========== MULTICALL: Protocol Dashboard ==========
-  const { data: protocolMultiData, refetch: refetchProtocol } = useReadContracts({
+  const { data: protocolMultiData, refetch: refetchProtocol, error: protocolError } = useReadContracts({
     contracts: [
       { address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "protocolSummary" },
       { address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "vaultCoverage" },
@@ -111,6 +111,13 @@ function Staking() {
     ],
     query: { refetchInterval: 30_000 },
   });
+
+  // Debug: log protocol read errors
+  useEffect(() => {
+    if (protocolError) {
+      console.error("[STAKE] Protocol read error:", protocolError);
+    }
+  }, [protocolError]);
 
   const protocolSummary = useMemo(() => {
     if (!protocolMultiData?.[0]?.result) return null;
@@ -151,10 +158,17 @@ function Staking() {
   }, [protocolMultiData]);
 
   // ========== Pools ==========
-  const { data: poolsData, refetch: refetchPools } = useReadContract({
+  const { data: poolsData, refetch: refetchPools, error: poolsError } = useReadContract({
     address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "getAllPools",
     query: { refetchInterval: 30_000 },
   });
+
+  // Debug: log pools read errors
+  useEffect(() => {
+    if (poolsError) {
+      console.error("[STAKE] Pools read error:", poolsError);
+    }
+  }, [poolsError]);
 
   const pools: Pool[] = useMemo(() => {
     if (!poolsData) return [];
@@ -165,13 +179,20 @@ function Staking() {
   }, [poolsData]);
 
   // ========== MULTICALL: User Dashboard ==========
-  const { data: userMultiData, refetch: refetchUser } = useReadContracts({
+  const { data: userMultiData, refetch: refetchUser, error: userError } = useReadContracts({
     contracts: [
       { address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "isEligibleForStaking", args: [userAddr] },
       { address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "getUserActiveStakes", args: [userAddr] },
     ],
     query: { enabled: isConnected, refetchInterval: 30_000 },
   });
+
+  // Debug: log user read errors
+  useEffect(() => {
+    if (userError) {
+      console.error("[STAKE] User read error:", userError);
+    }
+  }, [userError]);
 
   const eligibility = useMemo(() => {
     if (!userMultiData?.[0]?.result) return null;
@@ -191,7 +212,7 @@ function Staking() {
   const tokenAddr = tokenAddress as `0x${string}`;
   const isValidTokenAddr = !!tokenAddress && tokenAddress !== zeroAddress;
 
-  const { data: tokenMultiData, refetch: refetchToken } = useReadContracts({
+  const { data: tokenMultiData, refetch: refetchToken, error: tokenError } = useReadContracts({
     contracts: [
       { address: tokenAddr, abi: erc20Abi, functionName: "decimals" },
       { address: tokenAddr, abi: erc20Abi, functionName: "symbol" },
@@ -201,6 +222,13 @@ function Staking() {
     ],
     query: { enabled: isValidTokenAddr, refetchInterval: 15_000 },
   });
+
+  // Debug: log token read errors
+  useEffect(() => {
+    if (tokenError) {
+      console.error("[STAKE] Token metadata read error:", tokenError);
+    }
+  }, [tokenError]);
 
   const tokenDecimals = tokenMultiData?.[0]?.result as number | undefined;
   const tokenSymbol = tokenMultiData?.[1]?.result as string | undefined;
@@ -220,7 +248,7 @@ function Staking() {
     catch { return 0n; }
   }, [tokenAddress, tokenAmount, tokenDecimals]);
 
-  const { data: stakePreviewData } = useReadContract({
+  const { data: stakePreviewData, error: previewError } = useReadContract({
     address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "previewStake",
     args: [tokenAddr, amountWei, selectedPoolId],
     query: {
@@ -229,6 +257,13 @@ function Staking() {
     },
   });
 
+  // Debug: log preview errors
+  useEffect(() => {
+    if (previewError) {
+      console.error("[STAKE] Stake preview error:", previewError);
+    }
+  }, [previewError]);
+
   const stakePreview = useMemo(() => {
     if (!stakePreviewData) return null;
     const t = stakePreviewData as readonly [bigint, bigint, boolean];
@@ -236,9 +271,16 @@ function Staking() {
   }, [stakePreviewData]);
 
   // ========== Owner check ==========
-  const { data: ownerAddress } = useReadContract({
+  const { data: ownerAddress, error: ownerError } = useReadContract({
     address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "owner",
   });
+
+  // Debug: log owner read errors
+  useEffect(() => {
+    if (ownerError) {
+      console.error("[STAKE] Owner read error:", ownerError);
+    }
+  }, [ownerError]);
   const isOwner = address && ownerAddress &&
     address.toLowerCase() === (ownerAddress as string).toLowerCase();
 
@@ -250,7 +292,12 @@ function Staking() {
     if (confirmed) {
       if (step === "approving") {
         toast.success("Token approved! Now staking...");
-        handleStake();
+        // Reset step so handleStake can set it to "staking"
+        setStep("idle");
+        // Small delay to let state settle, then trigger stake
+        setTimeout(() => {
+          handleStake();
+        }, 100);
       } else if (step === "staking") {
         toast.success("Stake created successfully!");
         setStep("confirmed");
@@ -306,64 +353,130 @@ function Staking() {
   function doSwitch() { switchChain({ chainId: monadMainnet.id }); }
 
   // ========== Handlers ==========
+
   const handleApprove = useCallback(async () => {
-    if (!isConnected) return toast.error("Connect wallet first");
-    if (wrongNetwork) return toast.error("Switch to Monad Mainnet");
-    if (!tokenAddress || tokenAddress === zeroAddress) return toast.error("Enter token address");
-    if (amountWei <= 0n) return toast.error("Enter amount");
+    console.log("[STAKE] handleApprove called");
+    console.log("[STAKE] isConnected:", isConnected, "| wrongNetwork:", wrongNetwork);
+    console.log("[STAKE] tokenAddress:", tokenAddress, "| amountWei:", amountWei.toString());
+
+    if (!isConnected) { toast.error("Connect wallet first"); return; }
+    if (wrongNetwork) { toast.error("Switch to Monad Mainnet"); return; }
+    if (!tokenAddress || tokenAddress === zeroAddress) { toast.error("Enter token address"); return; }
+    if (amountWei <= 0n) { toast.error("Enter amount"); return; }
+
     try {
       setStep("approving");
-      toast("Approving token...");
-      await writeContractAsync({
+      toast("Approving token — confirm in wallet...");
+      console.log("[STAKE] Calling approve:", tokenAddr, STAKING_CONTRACT_ADDRESS, amountWei.toString());
+      const hash = await writeContractAsync({
         address: tokenAddr, abi: erc20Abi, functionName: "approve",
         args: [STAKING_CONTRACT_ADDRESS, amountWei], chainId: monadMainnet.id,
       });
-    } catch (err) { console.error(err); toast.error("Approval failed"); setStep("idle"); }
+      console.log("[STAKE] Approval tx hash:", hash);
+    } catch (err: any) {
+      console.error("[STAKE] Approval error:", err);
+      const msg = err?.shortMessage || err?.message || "Approval failed";
+      toast.error(msg);
+      setStep("idle");
+    }
   }, [isConnected, wrongNetwork, tokenAddress, amountWei, writeContractAsync, tokenAddr]);
 
   const handleStake = useCallback(async () => {
-    if (!isConnected) return toast.error("Connect wallet first");
-    if (wrongNetwork) return toast.error("Switch to Monad Mainnet");
-    if (!tokenAddress || tokenAddress === zeroAddress) return toast.error("Enter token address");
-    if (amountWei <= 0n) return toast.error("Enter amount");
-    if (!stakePreview?.treasuryCanAfford) return toast.error("Treasury cannot afford this reward");
-    if (protocolSummary?.emergencyMode || protocolSummary?.paused) return toast.error("Staking is currently disabled");
-    if (!eligibility?.eligible) return toast.error(`You need at least ${Number(formatEther(MIN_JAMES_REQUIRED)).toLocaleString()} $JAMES to stake`);
+    console.log("[STAKE] handleStake called");
+    console.log("[STAKE] isConnected:", isConnected, "| wrongNetwork:", wrongNetwork);
+    console.log("[STAKE] tokenAddress:", tokenAddress, "| amountWei:", amountWei.toString());
+    console.log("[STAKE] selectedPoolId:", selectedPoolId.toString());
+    console.log("[STAKE] stakePreview:", stakePreview);
+    console.log("[STAKE] eligibility:", eligibility);
+    console.log("[STAKE] protocolSummary:", protocolSummary);
+
+    if (!isConnected) { toast.error("Connect wallet first"); return; }
+    if (wrongNetwork) { toast.error("Switch to Monad Mainnet"); return; }
+    if (!tokenAddress || tokenAddress === zeroAddress) { toast.error("Enter token address"); return; }
+    if (amountWei <= 0n) { toast.error("Enter amount"); return; }
+    if (!stakePreview?.treasuryCanAfford) { toast.error("Treasury cannot afford this reward"); return; }
+    if (protocolSummary?.emergencyMode || protocolSummary?.paused) { toast.error("Staking is currently disabled"); return; }
+    if (!eligibility?.eligible) {
+      toast.error(`You need at least ${Number(formatEther(MIN_JAMES_REQUIRED)).toLocaleString()} $JAMES to stake`);
+      return;
+    }
+
     try {
-      if (step !== "approving") setStep("staking");
-      toast("Creating stake...");
-      await writeContractAsync({
+      setStep("staking");
+      toast("Creating stake — confirm in wallet...");
+      console.log("[STAKE] Calling stake:", tokenAddr, amountWei.toString(), selectedPoolId.toString());
+      const hash = await writeContractAsync({
         address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "stake",
         args: [tokenAddr, amountWei, selectedPoolId], chainId: monadMainnet.id,
       });
-    } catch (err) { console.error(err); toast.error("Staking failed"); setStep("idle"); }
-  }, [isConnected, wrongNetwork, tokenAddress, amountWei, stakePreview, protocolSummary, eligibility, selectedPoolId, step, writeContractAsync, tokenAddr]);
+      console.log("[STAKE] Stake tx hash:", hash);
+    } catch (err: any) {
+      console.error("[STAKE] Staking error:", err);
+      const msg = err?.shortMessage || err?.message || "Staking failed";
+      toast.error(msg);
+      setStep("idle");
+    }
+  }, [isConnected, wrongNetwork, tokenAddress, amountWei, stakePreview, protocolSummary, eligibility, selectedPoolId, writeContractAsync, tokenAddr]);
 
   const startStakeFlow = useCallback(() => {
-    if (!isConnected) return toast.error("Connect wallet first");
-    if (wrongNetwork) return toast.error("Switch to Monad Mainnet");
-    if (!tokenAddress || tokenAddress === zeroAddress) return toast.error("Enter token address");
-    if (amountWei <= 0n) return toast.error("Enter amount");
-    if (!stakePreview?.treasuryCanAfford) return toast.error("Treasury cannot afford this reward");
-    if (protocolSummary?.emergencyMode || protocolSummary?.paused) return toast.error("Staking is currently disabled");
-    if (!eligibility?.eligible) return toast.error(`You need at least ${Number(formatEther(MIN_JAMES_REQUIRED)).toLocaleString()} $JAMES to stake`);
-    if ((tokenAllowance ?? 0n) >= amountWei) { handleStake(); } else { handleApprove(); }
-  }, [isConnected, wrongNetwork, tokenAddress, amountWei, tokenAllowance, stakePreview, protocolSummary, eligibility, handleApprove, handleStake]);
+    console.log("[STAKE] === STAKE BUTTON CLICKED ===");
+    console.log("[STAKE] isConnected:", isConnected, "| address:", address);
+    console.log("[STAKE] chainId:", chainId, "| expected:", monadMainnet.id, "| wrongNetwork:", wrongNetwork);
+    console.log("[STAKE] selectedToken:", tokenAddress, "| stakeAmount:", tokenAmount);
+    console.log("[STAKE] tokenAllowance:", (tokenAllowance ?? 0n).toString(), "| amountWei:", amountWei.toString());
+    console.log("[STAKE] eligibility:", eligibility);
+    console.log("[STAKE] protocolSummary?.emergencyMode:", protocolSummary?.emergencyMode, "| paused:", protocolSummary?.paused);
+    console.log("[STAKE] stakePreview:", stakePreview);
+
+    if (!isConnected) { toast.error("Connect wallet first"); return; }
+    if (wrongNetwork) { toast.error("Switch to Monad Mainnet"); return; }
+    if (!tokenAddress || tokenAddress === zeroAddress) { toast.error("Enter token address"); return; }
+    if (amountWei <= 0n) { toast.error("Enter amount"); return; }
+    if (protocolSummary?.emergencyMode || protocolSummary?.paused) { toast.error("Staking is currently disabled"); return; }
+    if (!eligibility?.eligible) {
+      toast.error(`You need at least ${Number(formatEther(MIN_JAMES_REQUIRED)).toLocaleString()} $JAMES to stake`);
+      return;
+    }
+    if (!stakePreview?.treasuryCanAfford) { toast.error("Treasury cannot afford this reward"); return; }
+
+    const needsApproval = (tokenAllowance ?? 0n) < amountWei;
+    console.log("[STAKE] needsApproval:", needsApproval, "| allowance:", (tokenAllowance ?? 0n).toString(), ">= amount:", amountWei.toString());
+
+    if (needsApproval) {
+      console.log("[STAKE] Starting approval flow...");
+      handleApprove();
+    } else {
+      console.log("[STAKE] Allowance sufficient, starting stake directly...");
+      handleStake();
+    }
+  }, [isConnected, wrongNetwork, tokenAddress, amountWei, tokenAllowance, stakePreview, protocolSummary, eligibility, handleApprove, handleStake, address, chainId, tokenAmount]);
 
   const handleClaim = useCallback(async (stakeId: bigint) => {
+    console.log("[STAKE] handleClaim called, stakeId:", stakeId.toString());
     try {
-      toast("Claiming reward...");
-      await writeContractAsync({ address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "claim", args: [stakeId], chainId: monadMainnet.id });
-    } catch (err) { console.error(err); toast.error("Claim failed"); }
+      toast("Claiming reward — confirm in wallet...");
+      const hash = await writeContractAsync({ address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "claim", args: [stakeId], chainId: monadMainnet.id });
+      console.log("[STAKE] Claim tx hash:", hash);
+    } catch (err: any) {
+      console.error("[STAKE] Claim error:", err);
+      const msg = err?.shortMessage || err?.message || "Claim failed";
+      toast.error(msg);
+    }
   }, [writeContractAsync]);
 
   const handleEarlyUnstake = useCallback(async () => {
     if (!selectedStake) return;
+    console.log("[STAKE] handleEarlyUnstake called, stakeId:", selectedStake.stakeId.toString());
     try {
       setShowEarlyUnstakeModal(false);
-      toast("Unstaking early...");
-      await writeContractAsync({ address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "earlyUnstake", args: [selectedStake.stakeId], chainId: monadMainnet.id });
-    } catch (err) { console.error(err); toast.error("Early unstake failed"); }
+      toast("Unstaking early — confirm in wallet...");
+      const hash = await writeContractAsync({ address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "earlyUnstake", args: [selectedStake.stakeId], chainId: monadMainnet.id });
+      console.log("[STAKE] Early unstake tx hash:", hash);
+    } catch (err: any) {
+      console.error("[STAKE] Early unstake error:", err);
+      const msg = err?.shortMessage || err?.message || "Early unstake failed";
+      toast.error(msg);
+    }
   }, [selectedStake, writeContractAsync]);
 
   // Admin action wrappers with confirmation
@@ -376,19 +489,25 @@ function Staking() {
       onConfirm: async () => {
         setAdminAction(null);
         try {
+          console.log("[STAKE] adminFund called, amount:", amount);
           const { parseEther: pe } = await import("viem");
           const hash = await writeContractAsync({
             address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "fundRewards",
             value: pe(amount), chainId: monadMainnet.id,
           });
+          console.log("[STAKE] Fund tx hash:", hash);
           toast.success(`Funding ${amount} MON...`);
-        } catch (err) { toast.error("Fund failed"); }
+        } catch (err: any) {
+          console.error("[STAKE] Fund error:", err);
+          const msg = err?.shortMessage || err?.message || "Fund failed";
+          toast.error(msg);
+        }
       },
     });
   }, [writeContractAsync]);
 
   const adminActionHandler = useCallback((action: string, description: string, fn: () => Promise<void>) => {
-    setAdminAction({ action, description, onConfirm: async () => { setAdminAction(null); try { await fn(); } catch { toast.error(`${action} failed`); } } });
+    setAdminAction({ action, description, onConfirm: async () => { setAdminAction(null); try { await fn(); } catch (err: any) { console.error(`[STAKE] ${action} error:`, err); toast.error(err?.shortMessage || err?.message || `${action} failed`); } } });
   }, []);
 
   const addressShort = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Not connected";
@@ -602,7 +721,7 @@ function Staking() {
           </div>
 
           <button onClick={startStakeFlow}
-            disabled={writing || confirming || (protocolSummary?.emergencyMode || protocolSummary?.paused) || !stakePreview?.treasuryCanAfford || !eligibility?.eligible}
+            disabled={writing || confirming}
             className="mt-5 w-full rounded-2xl bg-banana-gradient py-4 font-extrabold text-lg shadow-cute border-2 border-white hover:scale-[1.02] transition disabled:opacity-60">
             {step === "approving" ? "Approving..." : step === "staking" ? "Staking..." : writing ? "Confirm in wallet…" : confirming ? "Confirming…" : "Stake Now"}
           </button>
