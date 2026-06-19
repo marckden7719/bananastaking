@@ -26,6 +26,8 @@ import {
   formatMon,
   formatCoverage,
   getCoverageStatus,
+  safeBigIntToNumber,
+  DEFAULT_POOLS,
   MIN_JAMES_REQUIRED,
   type Pool,
   type ActiveStake,
@@ -59,12 +61,12 @@ export const Route = createFileRoute("/staking")({
 function useCountdown(unlockTimeSec: bigint) {
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   useEffect(() => {
-    const unlockNum = Number(unlockTimeSec);
+    const unlockNum = safeBigIntToNumber(unlockTimeSec);
     if (unlockNum <= now) return;
     const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
     return () => clearInterval(id);
   }, [unlockTimeSec, now]);
-  const unlockNum = Number(unlockTimeSec);
+  const unlockNum = safeBigIntToNumber(unlockTimeSec);
   const remaining = Math.max(0, unlockNum - now);
   return {
     days: Math.floor(remaining / 86400),
@@ -158,25 +160,55 @@ function Staking() {
   }, [protocolMultiData]);
 
   // ========== Pools ==========
+  const [poolsFallback, setPoolsFallback] = useState(false);
+
   const { data: poolsData, refetch: refetchPools, error: poolsError } = useReadContract({
     address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "getAllPools",
     query: { refetchInterval: 30_000 },
   });
 
+  // Debug: log raw pool response
+  useEffect(() => {
+    if (poolsData) {
+      console.log("[STAKE] RAW POOLS:", JSON.stringify(poolsData, (_, v) =>
+        typeof v === "bigint" ? v.toString() : v
+      ));
+    }
+  }, [poolsData]);
+
   // Debug: log pools read errors
   useEffect(() => {
     if (poolsError) {
       console.error("[STAKE] Pools read error:", poolsError);
+      console.log("[STAKE] Using DEFAULT_POOLS fallback");
+      setPoolsFallback(true);
     }
   }, [poolsError]);
 
   const pools: Pool[] = useMemo(() => {
+    if (poolsFallback) return DEFAULT_POOLS;
     if (!poolsData) return [];
-    return (poolsData as readonly unknown[]).map((p) => {
-      const t = p as readonly [bigint, string, bigint, bigint, number];
-      return { poolId: t[0], name: t[1], duration: t[2], rewardPercentage: t[3], status: t[4] };
-    });
-  }, [poolsData]);
+    try {
+      // Contract returns PoolConfig[] where each element is an object with:
+      // { name: string, lockDuration: uint256, rewardPercent: uint256, active: bool }
+      // poolId is the array index
+      const rawPools = poolsData as unknown as readonly { name: string; lockDuration: bigint; rewardPercent: bigint; active: boolean }[];
+      const parsed = rawPools.map((p, index) => ({
+        poolId: BigInt(index),
+        name: p.name,
+        duration: p.lockDuration,
+        rewardPercentage: p.rewardPercent,
+        active: p.active,
+      }));
+      console.log("[STAKE] PARSED POOLS:", parsed);
+      return parsed;
+    } catch (err) {
+      console.error("[STAKE] Pool parsing error:", err);
+      console.log("[STAKE] Using DEFAULT_POOLS fallback");
+      setPoolsFallback(true);
+      return DEFAULT_POOLS;
+    }
+  }, [poolsData, poolsFallback]);
 
   // ========== MULTICALL: User Dashboard ==========
   const { data: userMultiData, refetch: refetchUser, error: userError } = useReadContracts({
@@ -247,6 +279,22 @@ function Staking() {
     try { return parseUnits(tokenAmount, Number(tokenDecimals)); }
     catch { return 0n; }
   }, [tokenAddress, tokenAmount, tokenDecimals]);
+
+  // Debug: log staking initialization state
+  useEffect(() => {
+    console.log("[STAKE] === INIT STATE ===");
+    console.log("[STAKE] STAKING_CONTRACT:", STAKING_CONTRACT_ADDRESS);
+    console.log("[STAKE] isConnected:", isConnected, "| address:", address);
+    console.log("[STAKE] chainId:", chainId, "| wrongNetwork:", wrongNetwork);
+    console.log("[STAKE] pools count:", pools.length, "| poolsFallback:", poolsFallback);
+    console.log("[STAKE] pools:", pools.map(p => ({ id: p.poolId.toString(), name: p.name, active: p.active })));
+    console.log("[STAKE] eligibility:", eligibility);
+    console.log("[STAKE] protocolSummary:", protocolSummary ? {
+      totalStakes: protocolSummary.totalStakes.toString(),
+      emergencyMode: protocolSummary.emergencyMode,
+      paused: protocolSummary.paused,
+    } : null);
+  });
 
   const { data: stakePreviewData, error: previewError } = useReadContract({
     address: STAKING_CONTRACT_ADDRESS, abi: vaultAbi, functionName: "previewStake",
@@ -644,14 +692,14 @@ function Staking() {
             {pools.map((p) => (
               <motion.button whileHover={{ scale: 1.01 }} key={p.poolId.toString()} onClick={() => setSelectedPoolId(p.poolId)}
                 disabled={protocolSummary?.emergencyMode || protocolSummary?.paused}
-                className={`w-full text-left rounded-[24px] p-5 border-4 shadow-cute transition ${selectedPoolId === p.poolId ? "border-foreground" : "border-white"} ${p.status === 0 ? "bg-[color:var(--banana-cream)]" : p.status === 1 ? "bg-banana-gradient" : "bg-gray-100"} ${(protocolSummary?.emergencyMode || protocolSummary?.paused) ? "opacity-60" : ""}`}>
+                className={`w-full text-left rounded-[24px] p-5 border-4 shadow-cute transition ${selectedPoolId === p.poolId ? "border-foreground" : "border-white"} ${p.active ? "bg-banana-gradient" : "bg-gray-100"} ${(protocolSummary?.emergencyMode || protocolSummary?.paused) ? "opacity-60" : ""}`}>
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-extrabold text-xl">{p.name}</div>
-                    <div className="text-sm font-bold opacity-80">{Number(p.duration) / 86400} days lock</div>
+                    <div className="text-sm font-bold opacity-80">{safeBigIntToNumber(p.duration) / 86400} days lock</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-3xl font-extrabold">{Number(p.rewardPercentage) / 100}%</div>
+                    <div className="text-3xl font-extrabold">{safeBigIntToNumber(p.rewardPercentage) / 100}%</div>
                     <div className="text-xs font-extrabold opacity-80">Reward</div>
                   </div>
                 </div>

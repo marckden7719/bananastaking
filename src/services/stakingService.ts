@@ -37,7 +37,7 @@ export interface Pool {
   name: string;
   duration: bigint;
   rewardPercentage: bigint;
-  status: number;
+  active: boolean;
 }
 
 export interface ActiveStake {
@@ -152,19 +152,20 @@ export async function getAllPools(): Promise<Pool[]> {
       abi: vaultAbi,
       functionName: "getAllPools",
     });
-    return (result as readonly unknown[]).map((p) => {
-      const t = p as readonly [bigint, string, bigint, bigint, number];
-      return {
-        poolId: t[0],
-        name: t[1],
-        duration: t[2],
-        rewardPercentage: t[3],
-        status: t[4],
-      };
-    });
+    // Contract returns PoolConfig[] where each element is:
+    // { name: string, lockDuration: uint256, rewardPercent: uint256, active: bool }
+    // poolId is the array index
+    const rawPools = result as unknown as readonly { name: string; lockDuration: bigint; rewardPercent: bigint; active: boolean }[];
+    return rawPools.map((p, index) => ({
+      poolId: BigInt(index),
+      name: p.name,
+      duration: p.lockDuration,
+      rewardPercentage: p.rewardPercent,
+      active: p.active,
+    }));
   } catch (err) {
     console.error("[stakingService] getAllPools failed:", err);
-    return [];
+    return DEFAULT_POOLS;
   }
 }
 
@@ -679,3 +680,32 @@ export function getCoverageStatus(raw: bigint): {
 }
 
 export const MIN_JAMES_REQUIRED = 1000000n; // 1,000,000 JAMES
+
+// ---------------------------------------------------------------------------
+// Safe BigInt utilities
+// ---------------------------------------------------------------------------
+
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+/**
+ * Safely convert a bigint to a JavaScript number.
+ * Throws if the value exceeds Number.MAX_SAFE_INTEGER (9007199254740991).
+ */
+export function safeBigIntToNumber(value: bigint): number {
+  if (value > MAX_SAFE_BIGINT) {
+    throw new Error(
+      `BigInt exceeds JS safe integer range: ${value.toString()}`
+    );
+  }
+  return Number(value);
+}
+
+/**
+ * Default pools used as fallback when getAllPools() fails.
+ * These match the standard James Universal Staking V3 pool configuration.
+ */
+export const DEFAULT_POOLS: Pool[] = [
+  { poolId: 0n, name: "Lite", duration: 604800n, rewardPercentage: 30n, active: true },
+  { poolId: 1n, name: "Plus", duration: 1209600n, rewardPercentage: 60n, active: true },
+  { poolId: 2n, name: "Diamond", duration: 2592000n, rewardPercentage: 120n, active: true },
+];
