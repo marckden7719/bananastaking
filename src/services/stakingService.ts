@@ -715,19 +715,17 @@ export const DEFAULT_POOLS: Pool[] = [
 // ---------------------------------------------------------------------------
 
 /**
- * Format a basis-points reward value for display.
- * Contract stores rewards as bps: 30 = 0.30%, 60 = 0.60%, 120 = 1.20%
+ * Format a reward percentage value for display.
+ * Contract stores rewards as whole numbers: 30 = 30%, 60 = 60%, 120 = 120%
  *
  * Examples:
- *   30   -> "0.30%"
- *   60   -> "0.60%"
- *   120  -> "1.20%"
- *   100  -> "1%"
- *   250  -> "2.50%"
+ *   30   -> "30%"
+ *   60   -> "60%"
+ *   120  -> "120%"
+ *   100  -> "100%"
+ *   250  -> "250%"
  */
 export function formatRewardPercent(rewardPercent: bigint | number): string {
-  const num = Number(rewardPercent) / 100;
-  // Show no decimals for whole numbers (e.g. 1%), 2 decimals otherwise (e.g. 0.30%)
-  const decimals = num % 1 === 0 ? 0 : 2;
-  return `${num.toFixed(decimals)}%`;
+  const num = Number(rewardPercent);
+  return `${num}%`;
 }
